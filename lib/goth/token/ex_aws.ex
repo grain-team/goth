@@ -1,6 +1,6 @@
 defmodule Goth.Token.ExAws do
   @moduledoc """
-  AWS workload identity integration using ex_aws/ex_aws_sts.
+  AWS workload identity integration using ex_aws.
 
   This module provides AWS workload identity federation support by leveraging
   the existing ex_aws and ex_aws_sts libraries for credential resolution and
@@ -10,7 +10,6 @@ defmodule Goth.Token.ExAws do
 
   This functionality requires the following optional dependencies:
   - `ex_aws ~> 2.1`
-  - `ex_aws_sts ~> 2.0`
 
   If these dependencies are not available, AWS workload identity federation
   will not be supported, but other Goth functionality remains unaffected.
@@ -36,8 +35,8 @@ defmodule Goth.Token.ExAws do
 
   ## Parameters
 
-  - `credential_source` - The credential source configuration from the workload identity config
-  - `http_client` - HTTP client configuration (currently unused, ex_aws handles its own HTTP)
+  - `audience` - The audience string to include in the signed request,
+    typically the full resource name of the Google service account.
 
   ## Returns
 
@@ -46,77 +45,58 @@ defmodule Goth.Token.ExAws do
   """
 
   if Code.ensure_loaded?(ExAws) && Code.ensure_loaded?(ExAws.STS) do
-    def generate_subject_token() do
-      with {:ok, signed_request} <- build_signed_request() do
+    def generate_subject_token(audience) do
+      with {:ok, signed_request} <- build_signed_request(audience) do
         {:ok, encode_for_google_sts(signed_request)}
       end
     end
 
-    defp build_signed_request() do
-      params = %{
-        "Version" => "2011-06-15",
-        "Action" => "GetCallerIdentity"
-      }
+    defp build_signed_request(audience) do
+      # Build the STS GetCallerIdentity request
+      url = "https://sts.amazonaws.com/"
+      params = "Action=GetCallerIdentity&Version=2011-06-15"
+      url = URI.parse(url) |> URI.append_query(params) |> URI.to_string()
 
-      operation = %ExAws.Operation.Query{
-        path: "/",
-        params: params,
-        service: :sts,
-        action: :get_caller_identity
-      }
+      headers = [{"x-goog-cloud-target-resource", audience}]
 
-      case ExAws.request(operation, http_client: Goth.Token.ExAws.RequestCapture) do
-        {:ok, %{body: request_details}} ->
+      config = ExAws.Config.new(:sts)
+
+      case ExAws.Auth.headers(:post, url, :sts, config, headers, "") do
+        {:ok, signed_headers} ->
+          request_details =
+            %{
+              "method" => "POST",
+              "url" => url,
+              "headers" => Map.new(signed_headers)
+            }
+
           {:ok, request_details}
 
         {:error, reason} ->
           {:error, reason}
-
-        _ ->
-          {:error, "Failed to build signed request"}
-      end
-    end
-
-    defmodule RequestCapture do
-      @behaviour ExAws.Request.HttpClient
-
-      @impl ExAws.Request.HttpClient
-      def request(method, url, body, headers, _http_opts) do
-        request_details = %{
-          method: method |> Atom.to_string() |> String.upcase(),
-          url: url,
-          headers: headers,
-          body: body || ""
-        }
-
-        response = %{
-          status_code: 200,
-          headers: headers,
-          body: request_details
-        }
-
-        {:ok, response}
       end
     end
 
     defp encode_for_google_sts(signed_request) do
-      token_data = %{
-        "url" => signed_request.url,
-        "method" => signed_request.method,
-        "headers" =>
-          Enum.map(signed_request.headers, fn {key, value} ->
-            %{"key" => key, "value" => value}
-          end),
-        "body" => Base.encode64(signed_request.body)
-      }
+      headers =
+        Enum.map(signed_request["headers"], fn {k, v} ->
+          %{
+            "key" => k,
+            "value" => v
+          }
+        end)
 
-      token_data
+      %{
+        "url" => signed_request["url"],
+        "method" => signed_request["method"],
+        "headers" => headers
+      }
       |> Jason.encode!()
-      |> Base.url_encode64(padding: false)
+      |> URI.encode()
     end
   else
-    def generate_subject_token(_credential_source, _http_client) do
-      {:error, "ex_aws and ex_aws_sts dependencies are required for AWS workload identity federation"}
+    def generate_subject_token(_audience) do
+      {:error, "ex_aws dependency is required for AWS workload identity federation"}
     end
   end
 end

@@ -388,7 +388,7 @@ defmodule Goth.Token do
 
     subject_token =
       if is_aws_workload_identity?(credentials) do
-        case Goth.Token.ExAws.generate_subject_token() do
+        case Goth.Token.ExAws.generate_subject_token(audience) do
           {:ok, token} ->
             token
 
