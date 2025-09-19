@@ -52,7 +52,6 @@ defmodule Goth.Token.ExAws do
     end
 
     defp build_signed_request(audience) do
-      # Build the STS GetCallerIdentity request
       url = "https://sts.amazonaws.com/"
       params = "Action=GetCallerIdentity&Version=2011-06-15"
       url = URI.parse(url) |> URI.append_query(params) |> URI.to_string()
@@ -78,21 +77,24 @@ defmodule Goth.Token.ExAws do
     end
 
     defp encode_for_google_sts(signed_request) do
-      headers =
-        Enum.map(signed_request["headers"], fn {k, v} ->
-          %{
-            "key" => k,
-            "value" => v
-          }
-        end)
-
-      %{
+      token = %{
         "url" => signed_request["url"],
         "method" => signed_request["method"],
-        "headers" => headers
+        "headers" =>
+          Enum.map(signed_request["headers"], fn {key, value} ->
+            %{"key" => key, "value" => value}
+          end)
       }
+
+      token
       |> Jason.encode!()
-      |> URI.encode()
+      |> url_quote()
+    end
+
+    defp url_quote(string) do
+      string
+      |> :uri_string.quote()
+      |> to_string()
     end
   else
     def generate_subject_token(_audience) do
