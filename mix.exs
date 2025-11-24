@@ -48,7 +48,7 @@ defmodule Goth.Mixfile do
       {:mimic, "~> 2.1", only: :test},
       {:hackney, "~> 1.9", only: :test},
       {:ex_doc, "~> 0.19", only: :dev},
-      {:credo, "~> 1.6", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 0.5", only: [:dev], runtime: false}
     ]
   end
